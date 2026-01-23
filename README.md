@@ -1,4 +1,4 @@
-# Projeto Docker + PHP
+# Projeto Docker + PHP 8.3 + Apache
 
 ## Descrição
 
