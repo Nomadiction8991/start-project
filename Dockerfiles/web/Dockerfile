@@ -1,4 +1,4 @@
-FROM php:8.3-apache
+FROM php:8.3-apache AS base
 
 RUN apt-get update \
     && apt-get install -y --no-install-recommends \
@@ -12,7 +12,6 @@ RUN apt-get update \
     && rm -rf /var/lib/apt/lists/*
 
 WORKDIR /var/www/html
-COPY . .
 
 COPY --from=composer:2 /usr/bin/composer /usr/bin/composer
 
@@ -24,5 +23,16 @@ COPY Dockerfiles/php.ini /usr/local/etc/php/conf.d/dev.ini
 
 ENTRYPOINT ["/usr/local/bin/boot.sh"]
 CMD ["apache2-foreground"]
+
+FROM base AS prod
+
+COPY . .
+
+EXPOSE 80
+
+FROM base AS dev
+
+RUN pecl install xdebug \
+ && docker-php-ext-enable xdebug
 
 EXPOSE 80

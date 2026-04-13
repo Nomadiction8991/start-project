@@ -1,11 +1,12 @@
 services:
   web:
-    image: "${APP_NAME}-web:local"
+    image: "${APP_NAME}-web:${HAMBIENTE}"
     container_name: "${APP_NAME}-web"
     user: "${LOCAL_UID:-1000}:${LOCAL_GID:-1000}"
     build:
       context: .
-      dockerfile: Dockerfiles/Dockerfile-web
+      dockerfile: Dockerfiles/web/Dockerfile
+      target: ${HAMBIENTE}
     ports:
       - "${HOST_PORT}:80"
     volumes:
@@ -19,15 +20,15 @@ services:
       - "host.${APP_NAME}.internal:host-gateway"
 
   db:
-    image: "${APP_NAME}-db:local"
+    image: "${APP_NAME}-db:${HAMBIENTE}"
     container_name: "${APP_NAME}-db"
     build:
       context: .
-      dockerfile: Dockerfiles/Dockerfile-db
+      dockerfile: Dockerfiles/db/Dockerfile
     environment:
       MYSQL_ROOT_PASSWORD: "${DB_ROOT_PASSWORD}"
       MYSQL_DATABASE: "${DB_DATABASE}"
-      MYSQL_USER: "${DB_USER}"
+      MYSQL_USER: "${DB_USERNAME}"
       MYSQL_PASSWORD: "${DB_PASSWORD}"
     ports:
       - "${DB_PORT}:3306"
