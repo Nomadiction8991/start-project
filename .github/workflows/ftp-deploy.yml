@@ -1,0 +1,101 @@
+name: ftp-deploy
+
+on:
+  workflow_run:
+    workflows:
+      - build-image
+    types:
+      - completed
+
+permissions:
+  contents: read
+  actions: read
+
+jobs:
+  deploy:
+    if: ${{ github.event.workflow_run.conclusion == 'success' }}
+    runs-on: ubuntu-latest
+    env:
+      DOMINIO: ${{ secrets.DOMINIO }}
+      FTP_USERNAME: ${{ secrets.FTP_USERNAME }}
+      FTP_PASSWORD: ${{ secrets.FTP_PASSWORD }}
+    steps:
+      - name: Baixar artefatos do build
+        uses: actions/download-artifact@v4
+        with:
+          name: laravel-package
+          path: build-package
+          run-id: ${{ github.event.workflow_run.id }}
+          github-token: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Baixar destino do deploy
+        uses: actions/download-artifact@v4
+        with:
+          name: deploy-target
+          path: deploy-target
+          run-id: ${{ github.event.workflow_run.id }}
+          github-token: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Preparar destino
+        id: prepare
+        shell: bash
+        run: |
+          set -euo pipefail
+
+          artifact_env="build-package/.env"
+          if [ ! -f "$artifact_env" ]; then
+            artifact_env="$(find build-package -type f -path '*/.env' -print -quit)"
+          fi
+          if [ -z "$artifact_env" ]; then
+            echo "Arquivo .env do artefato nao encontrado."
+            exit 1
+          fi
+
+          app_url="$(grep -m1 '^APP_URL=' "$artifact_env" | cut -d= -f2-)"
+          if [ -z "$app_url" ]; then
+            echo "APP_URL vazio no artefato."
+            exit 1
+          fi
+
+          remote_dir="${app_url#https://}"
+          remote_dir="${remote_dir%/}"
+          # state_name relativo ao local-dir (build-package/) — ação FTP concatena local-dir + state_name
+          state_name=".ftp-state/${remote_dir}.json"
+          state_path="build-package/${state_name}"
+
+          mkdir -p "$(dirname "$state_path")"
+          if [ ! -f "$state_path" ]; then
+            echo '{}' > "$state_path"
+          fi
+
+          printf '%s\n' "$remote_dir" > deploy-target/remote_dir.txt
+          printf 'remote_dir=%s\n' "$remote_dir" >> "$GITHUB_OUTPUT"
+          printf 'state_name=%s\n' "$state_name" >> "$GITHUB_OUTPUT"
+          printf 'state_path=%s\n' "$state_path" >> "$GITHUB_OUTPUT"
+
+      - name: Restaurar estado do FTP
+        uses: actions/cache@v4
+        with:
+          path: ${{ steps.prepare.outputs.state_path }}
+          key: ftp-state-${{ github.repository }}-${{ steps.prepare.outputs.remote_dir }}-${{ github.run_id }}-${{ github.run_attempt }}
+          restore-keys: |
+            ftp-state-${{ github.repository }}-${{ steps.prepare.outputs.remote_dir }}-
+
+      - name: Enviar via FTP
+        uses: SamKirkland/FTP-Deploy-Action@v4.4.0
+        with:
+          server: ${{ secrets.DOMINIO }}
+          username: ${{ secrets.FTP_USERNAME }}
+          password: ${{ secrets.FTP_PASSWORD }}
+          local-dir: build-package/
+          server-dir: ${{ steps.prepare.outputs.remote_dir }}/
+          state-name: ${{ steps.prepare.outputs.state_name }}
+          log-level: standard
+
+      - name: Republicar destino de deploy
+        uses: actions/upload-artifact@v4
+        with:
+          name: deploy-target
+          path: deploy-target/remote_dir.txt
+          if-no-files-found: error
+          retention-days: 7

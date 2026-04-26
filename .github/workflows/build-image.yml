@@ -1,0 +1,117 @@
+name: build-image
+
+on:
+  push:
+    tags:
+      # Glob GitHub, não regex. O job valida o regex exato depois.
+      - "[0-9][0-9].[0-9][0-9].[0-9][0-9].[0-9][0-9]"
+
+permissions:
+  contents: read
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    env:
+      DOMINIO: ${{ secrets.DOMINIO }}
+      DB_HOST: ${{ secrets.DB_HOST }}
+      DB_PORT: ${{ secrets.DB_PORT }}
+      DB_DATABASE: ${{ secrets.DB_DATABASE }}
+      DB_USERNAME: ${{ secrets.DB_USERNAME }}
+      DB_PASSWORD: ${{ secrets.DB_PASSWORD }}
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Validar tag e origem
+        shell: bash
+        run: |
+          set -euo pipefail
+
+          tag_name="${GITHUB_REF_NAME}"
+          if [[ ! "$tag_name" =~ ^[0-9]{2}\.[0-9]{2}\.[0-9]{2}\.[0-9]{2}$ ]]; then
+            echo "Tag invalida: $tag_name"
+            exit 1
+          fi
+
+          git fetch origin main master 2>/dev/null || git fetch origin main 2>/dev/null || git fetch origin master 2>/dev/null
+          # resolve para commit SHA (annotated tags têm SHA do objeto tag, não do commit)
+          commit_sha="$(git rev-list -n1 "$GITHUB_SHA")"
+          if ! git merge-base --is-ancestor "$commit_sha" origin/main 2>/dev/null && \
+             ! git merge-base --is-ancestor "$commit_sha" origin/master 2>/dev/null; then
+            echo "Tag precisa apontar para commit presente em main ou master."
+            exit 1
+          fi
+
+      - name: Preparar pacote Laravel
+        id: package
+        shell: bash
+        run: |
+          set -euo pipefail
+
+          app_name="$(grep -m1 '^APP_NAME=' .env.example | cut -d= -f2-)"
+          if [ -z "$app_name" ]; then
+            echo "APP_NAME vazio em .env.example"
+            exit 1
+          fi
+
+          app_name_tratado="$(printf '%s' "$app_name" | tr '[:upper:]' '[:lower:]' | tr -cd 'a-z')"
+          if [ -z "$app_name_tratado" ]; then
+            echo "APP_NAME sem letras apos tratamento."
+            exit 1
+          fi
+
+          app_url="https://${app_name_tratado}.${DOMINIO}"
+          remote_dir="${app_url#https://}"
+          stage_dir="build/${app_name}"
+
+          rm -rf build deploy-target
+          mkdir -p build deploy-target
+          mkdir -p "${stage_dir}"
+          cp -a "${app_name}/." "${stage_dir}/"
+          cp "${stage_dir}/.env.example" "${stage_dir}/.env"
+
+          update_env_value() {
+            key="$1"
+            value="$2"
+            file="$3"
+            php scripts/update_env_value.php "$file" "$key" "$value"
+          }
+
+          update_env_value APP_NAME "$app_name" "${stage_dir}/.env"
+          update_env_value APP_URL "$app_url" "${stage_dir}/.env"
+          update_env_value APP_ENV "production" "${stage_dir}/.env"
+          update_env_value DB_CONNECTION "mysql" "${stage_dir}/.env"
+          update_env_value DB_HOST "$DB_HOST" "${stage_dir}/.env"
+          update_env_value DB_PORT "$DB_PORT" "${stage_dir}/.env"
+          update_env_value DB_DATABASE "$DB_DATABASE" "${stage_dir}/.env"
+          update_env_value DB_USERNAME "$DB_USERNAME" "${stage_dir}/.env"
+          update_env_value DB_PASSWORD "$DB_PASSWORD" "${stage_dir}/.env"
+          update_env_value APP_KEY "" "${stage_dir}/.env"
+
+          rm -f "${stage_dir}/database/database.sqlite"
+
+          printf '%s\n' "$remote_dir" > deploy-target/remote_dir.txt
+
+          echo "app_name=${app_name}" >> "$GITHUB_OUTPUT"
+          echo "app_url=${app_url}" >> "$GITHUB_OUTPUT"
+          echo "stage_dir=${stage_dir}" >> "$GITHUB_OUTPUT"
+
+      - name: Publicar artefatos
+        uses: actions/upload-artifact@v4
+        with:
+          name: laravel-package
+          path: ${{ steps.package.outputs.stage_dir }}
+          include-hidden-files: true
+          if-no-files-found: error
+          retention-days: 7
+
+      - name: Publicar destino de deploy
+        uses: actions/upload-artifact@v4
+        with:
+          name: deploy-target
+          path: deploy-target/remote_dir.txt
+          if-no-files-found: error
+          retention-days: 7

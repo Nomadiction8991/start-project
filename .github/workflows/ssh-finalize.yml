@@ -1,0 +1,65 @@
+name: ssh-finalize
+
+on:
+  workflow_run:
+    workflows:
+      - ftp-deploy
+    types:
+      - completed
+
+permissions:
+  contents: read
+  actions: read
+
+jobs:
+  finalize:
+    if: ${{ github.event.workflow_run.conclusion == 'success' }}
+    runs-on: ubuntu-latest
+    env:
+      DOMINIO: ${{ secrets.DOMINIO }}
+      SSH_PORT: ${{ secrets.SSH_PORT }}
+      SSH_PATH: ${{ secrets.SSH_PATH }}
+      SSH_USERNAME: ${{ secrets.SSH_USERNAME }}
+      SSH_KEY: ${{ secrets.SSH_KEY }}
+    steps:
+      - name: Baixar destino do deploy
+        uses: actions/download-artifact@v4
+        with:
+          name: deploy-target
+          path: deploy-target
+          run-id: ${{ github.event.workflow_run.id }}
+          github-token: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Preparar chave SSH
+        shell: bash
+        run: |
+          set -euo pipefail
+
+          mkdir -p ~/.ssh
+          chmod 700 ~/.ssh
+
+          printf '%s\n' "$SSH_KEY" > ~/.ssh/deploy_key
+          chmod 600 ~/.ssh/deploy_key
+
+          ssh-keyscan -p "$SSH_PORT" -H "$DOMINIO" >> ~/.ssh/known_hosts
+          chmod 600 ~/.ssh/known_hosts
+
+      - name: Executar finalize
+        shell: bash
+        run: |
+          set -euo pipefail
+
+          remote_dir="$(cat deploy-target/remote_dir.txt)"
+          remote_path="${SSH_PATH%/}/${remote_dir}"
+
+          ssh -i ~/.ssh/deploy_key \
+            -p "$SSH_PORT" \
+            -o StrictHostKeyChecking=yes \
+            "$SSH_USERNAME@$DOMINIO" \
+            "set -e
+             cd '${SSH_PATH%/}'
+             cd '$remote_dir'
+             composer install --no-dev --no-interaction --prefer-dist --no-progress --optimize-autoloader --no-scripts
+             php artisan package:discover --ansi
+             if ! grep -qE '^APP_KEY=.+$' .env; then php artisan key:generate; fi
+             php artisan migrate --force"
