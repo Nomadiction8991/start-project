@@ -18,7 +18,7 @@ services:
     ports:
       - "${HOST_PORT}:80"
     volumes:
-      - ./${APP_NAME}:/var/www/html/${APP_NAME}
+      - ./${APP_NAME}:/var/www/html/${APP_NAME}:Z
     depends_on:
       - db
     networks:
