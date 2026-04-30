@@ -8,6 +8,13 @@ init_runtime_dirs() {
     mkdir -p "$COMPOSER_HOME" "$COMPOSER_CACHE_DIR"
 }
 
+configure_git_safety() {
+    if command -v git >/dev/null 2>&1; then
+        git config --global --add safe.directory /var/www/html
+        git config --global --add safe.directory "$APP_PATH"
+    fi
+}
+
 set_env_value() {
     env_file="$1"
     env_key="$2"
@@ -20,7 +27,21 @@ ensure_laravel_app() {
     if command -v composer >/dev/null 2>&1; then
         if [ ! -f "${APP_PATH}/artisan" ]; then
             echo "Criando Laravel em ${APP_DIR}..."
-            composer create-project laravel/laravel "${APP_PATH}" --no-interaction --prefer-dist --no-progress --no-scripts
+            attempt=1
+            while :; do
+                if composer create-project laravel/laravel "${APP_PATH}" --no-interaction --prefer-dist --no-progress --no-scripts; then
+                    break
+                fi
+
+                if [ "$attempt" -ge 3 ]; then
+                    echo "Falha ao criar o Laravel após 3 tentativas. Verifique a conectividade com o Packagist."
+                    exit 1
+                fi
+
+                echo "Falha ao criar o Laravel, tentando novamente em 5 segundos (${attempt}/3)..."
+                attempt=$((attempt + 1))
+                sleep 5
+            done
         fi
     else
         echo "Composer não encontrado, não foi possível criar o Laravel."
@@ -123,6 +144,7 @@ exec_entrypoint() {
 }
 
 init_runtime_dirs
+configure_git_safety
 ensure_laravel_app
 cd "${APP_PATH}" || exit 1
 sync_app_env
