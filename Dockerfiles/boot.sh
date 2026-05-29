@@ -63,6 +63,8 @@ sync_app_env() {
         set_env_value "${APP_PATH}/.env" "DB_DATABASE" "${DB_DATABASE}"
         set_env_value "${APP_PATH}/.env" "DB_USERNAME" "root"
         set_env_value "${APP_PATH}/.env" "DB_PASSWORD" "${DB_ROOT_PASSWORD}"
+        set_env_value "${APP_PATH}/.env" "REDIS_HOST" "${REDIS_HOST}"
+        set_env_value "${APP_PATH}/.env" "REDIS_PORT" "${REDIS_PORT}"
 
         if [ -f "${APP_PATH}/${APP_DIR}" ]; then
             rm -f "${APP_PATH}/${APP_DIR}"
@@ -135,6 +137,19 @@ ensure_app_key() {
     fi
 }
 
+start_vite() {
+    if [ -f "${APP_PATH}/package.json" ] && command -v npm >/dev/null 2>&1; then
+        echo "Iniciando Vite (npm run ${VITE_ENV})..."
+        if [ "${VITE_ENV}" = "dev" ]; then
+            npm --prefix "${APP_PATH}" run dev &
+        else
+            npm --prefix "${APP_PATH}" run build
+        fi
+    else
+        echo "package.json ou npm não encontrado, pulando Vite."
+    fi
+}
+
 exec_entrypoint() {
     if [ -x /usr/local/bin/docker-php-entrypoint ]; then
         exec docker-php-entrypoint "$@"
@@ -149,8 +164,9 @@ ensure_laravel_app
 cd "${APP_PATH}" || exit 1
 sync_app_env
 wait_for_database
-unset APP_NAME APP_ENV DB_HOST DB_PORT DB_DATABASE DB_ROOT_PASSWORD HOST_PORT LOCAL_UID LOCAL_GID
 install_dependencies
 ensure_app_key
 run_migrations
+start_vite
+unset APP_NAME APP_ENV DB_HOST DB_PORT DB_DATABASE DB_ROOT_PASSWORD HOST_PORT LOCAL_UID LOCAL_GID REDIS_HOST REDIS_PORT VITE_PORT VITE_ENV
 exec_entrypoint "$@"

@@ -107,6 +107,8 @@ env-sync: env-init
 	db_host="$$(resolve_required_key DB_HOST)"
 	db_database="$$(resolve_required_key DB_DATABASE)"
 	db_root_password="$$(resolve_required_key DB_ROOT_PASSWORD)"
+	redis_host="$$(resolve_required_key REDIS_HOST)"
+	vite_env="$$(resolve_required_key VITE_ENV)"
 	host_uid="$$(id -u)"
 	host_gid="$$(id -g)"
 	local_uid="$$(resolve_host_key LOCAL_UID "$$host_uid")"
@@ -116,6 +118,8 @@ env-sync: env-init
 	update_env_value DB_HOST "$$db_host"
 	update_env_value DB_DATABASE "$$db_database"
 	update_env_value DB_ROOT_PASSWORD "$$db_root_password"
+	update_env_value REDIS_HOST "$$redis_host"
+	update_env_value VITE_ENV "$$vite_env"
 	update_env_value LOCAL_UID "$$local_uid"
 	update_env_value LOCAL_GID "$$local_gid"
 
@@ -124,11 +128,17 @@ ports-sync: env-sync
 	echo "Ajustando portas livres em .env"
 	host_base_port="$$(resolve_required_key HOST_PORT)"
 	db_base_port="$$(resolve_required_key DB_PORT)"
+	redis_base_port="$$(resolve_required_key REDIS_PORT)"
+	vite_base_port="$$(resolve_required_key VITE_PORT)"
 	host_port="$$(find_free_port "$$host_base_port")"
 	db_port="$$(find_free_port "$$db_base_port")"
+	redis_port="$$(find_free_port "$$redis_base_port")"
+	vite_port="$$(find_free_port "$$vite_base_port")"
 	update_env_value HOST_PORT "$$host_port"
 	update_env_value DB_PORT "$$db_port"
-	echo "Portas escolhidas: HOST_PORT=$$host_port DB_PORT=$$db_port"
+	update_env_value REDIS_PORT "$$redis_port"
+	update_env_value VITE_PORT "$$vite_port"
+	echo "Portas escolhidas: HOST_PORT=$$host_port DB_PORT=$$db_port REDIS_PORT=$$redis_port VITE_PORT=$$vite_port"
 
 app-dir: ports-sync
 	@$(UP_FUNCS)
